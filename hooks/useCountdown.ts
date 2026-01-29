@@ -11,9 +11,15 @@ export function useCountdown() {
   const progress = useProgressPercentage();
   const isInitialized = useStatsStore((state) => state.isInitialized);
 
+  // Digits for countdown (remaining)
   const digits = useMemo(() => {
     return getDigits(remaining, 10);
   }, [remaining]);
+
+  // Digits for total transactions (hero number)
+  const totalDigits = useMemo(() => {
+    return getDigits(totalTransactions, 10);
+  }, [totalTransactions]);
 
   const isComplete = remaining <= 0;
   const isCritical = remaining < 1000;
@@ -22,6 +28,7 @@ export function useCountdown() {
   return {
     remaining,
     digits,
+    totalDigits,
     progress,
     isComplete,
     isCritical,
