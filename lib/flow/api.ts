@@ -2,6 +2,16 @@ import { Stats } from './types';
 
 const EVM_FLOWSCAN_API_URL = 'https://evm.flowscan.io/api/v2';
 const FLOW_ACCESS_API = 'https://rest-mainnet.onflow.org/v1';
+const FINDLABS_API_URL = 'https://api.find.xyz';
+
+// Baseline from Flowscan (Jan 29, 2026)
+// These will be used if API calls fail
+const BASELINE = {
+  blockHeight: 140_492_637,
+  totalTransactions: 893_630_136,
+  evmTransactions: 58_916_619,
+  timestamp: Date.now(),
+};
 
 // Timeout utility
 async function fetchWithTimeout(url: string, options: RequestInit = {}, timeout = 5000): Promise<Response> {
@@ -22,56 +32,90 @@ async function fetchWithTimeout(url: string, options: RequestInit = {}, timeout 
 }
 
 export async function fetchInitialStats(): Promise<Stats> {
+  let totalTransactions = 0;
   let totalEvm = 0;
   let blockHeight = 0;
 
-  // Fetch EVM and block data concurrently
-  const results = await Promise.allSettled([
-    // EVM count from Flowscan EVM API
-    fetchWithTimeout(`${EVM_FLOWSCAN_API_URL}/stats`, {}, 8000).then(r => r.json()),
+  // Check for Find Labs API key
+  const findLabsApiKey = process.env.FINDLABS_API_KEY;
 
-    // Block height from Flow Access API
-    fetchWithTimeout(`${FLOW_ACCESS_API}/blocks?height=sealed`, {}, 8000).then(r => r.json()),
-  ]);
+  // Fetch data from available sources
+  const fetches: Promise<any>[] = [
+    // EVM count from Flowscan EVM API (public)
+    fetchWithTimeout(`${EVM_FLOWSCAN_API_URL}/stats`, {}, 8000)
+      .then(r => r.json())
+      .catch(() => null),
+
+    // Block height from Flow Access API (public)
+    fetchWithTimeout(`${FLOW_ACCESS_API}/blocks?height=sealed`, {}, 8000)
+      .then(r => r.json())
+      .catch(() => null),
+  ];
+
+  // Add Find Labs API if key is available
+  if (findLabsApiKey) {
+    fetches.push(
+      fetchWithTimeout(`${FINDLABS_API_URL}/status/v1/stats`, {
+        headers: { 'X-API-KEY': findLabsApiKey },
+      }, 8000)
+        .then(r => r.json())
+        .catch(() => null)
+    );
+  }
+
+  const results = await Promise.all(fetches);
 
   // Parse EVM stats
-  if (results[0].status === 'fulfilled') {
-    const evmData = results[0].value;
-    totalEvm = parseInt(evmData?.total_transactions || '0', 10);
+  if (results[0]) {
+    totalEvm = parseInt(results[0]?.total_transactions || '0', 10);
   }
 
   // Parse block height
-  if (results[1].status === 'fulfilled') {
-    const blockData = results[1].value;
-    if (blockData?.[0]?.header?.height) {
-      blockHeight = parseInt(blockData[0].header.height, 10);
-    }
+  if (results[1]?.[0]?.header?.height) {
+    blockHeight = parseInt(results[1][0].header.height, 10);
   }
 
-  // Estimate Cadence transactions based on block height
-  // On Flow, there's roughly 4-5 transactions per block on average historically
-  // Current mainnet has ~700M+ total transactions with ~140M blocks
-  // This gives us approximately 5 transactions per block
-  const estimatedTotalTransactions = blockHeight > 0 ? Math.floor(blockHeight * 5) : 0;
-  const totalCadence = Math.max(0, estimatedTotalTransactions - totalEvm);
+  // Parse Find Labs stats (if available)
+  if (results[2]) {
+    totalTransactions = parseInt(results[2]?.transaction_count || '0', 10);
+  }
 
-  // Fallback if we couldn't get any data
-  if (blockHeight === 0 && totalEvm === 0) {
+  // If we have Find Labs data, use it directly
+  if (totalTransactions > 0) {
     return {
-      total: 995_000_000, // Close to 1B for demo
-      cadence: 650_000_000,
-      evm: 345_000_000,
+      total: totalTransactions,
+      cadence: totalTransactions - totalEvm,
+      evm: totalEvm,
       timestamp: Date.now(),
-      blockHeight: 140_000_000,
+      blockHeight,
     };
   }
 
+  // Otherwise, estimate from baseline + block delta
+  if (blockHeight > 0 && totalEvm > 0) {
+    // Calculate new transactions since baseline
+    const blockDelta = blockHeight - BASELINE.blockHeight;
+    // Average ~6.3 transactions per block based on (893M / 140M blocks)
+    const txPerBlock = 6.3;
+    const estimatedNewTx = Math.max(0, blockDelta * txPerBlock);
+    totalTransactions = Math.round(BASELINE.totalTransactions + estimatedNewTx);
+
+    return {
+      total: totalTransactions,
+      cadence: totalTransactions - totalEvm,
+      evm: totalEvm,
+      timestamp: Date.now(),
+      blockHeight,
+    };
+  }
+
+  // Fallback to baseline
   return {
-    total: estimatedTotalTransactions,
-    cadence: totalCadence,
-    evm: totalEvm,
+    total: BASELINE.totalTransactions,
+    cadence: BASELINE.totalTransactions - BASELINE.evmTransactions,
+    evm: BASELINE.evmTransactions,
     timestamp: Date.now(),
-    blockHeight,
+    blockHeight: BASELINE.blockHeight,
   };
 }
 

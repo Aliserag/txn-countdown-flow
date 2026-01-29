@@ -7,7 +7,7 @@ const FLOW_ACCESS_API = 'https://rest-mainnet.onflow.org/v1';
 const POLL_INTERVAL = 3000; // 3 seconds
 
 let lastProcessedHeight = 0;
-let transactionCounter = 702_000_000; // Start from approximate current count
+let transactionCounter = 893_630_000; // Start from accurate current count (Jan 2026)
 
 // Simple timeout wrapper
 async function fetchWithTimeout(url: string, timeout = 5000): Promise<Response> {
