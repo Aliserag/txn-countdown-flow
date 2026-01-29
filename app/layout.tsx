@@ -2,17 +2,17 @@ import type { Metadata } from 'next';
 import './globals.css';
 
 export const metadata: Metadata = {
-  title: 'Flow 1 Billion Countdown',
+  title: 'Flow 1 Billion Txns Countdown',
   description: 'Watch Flow blockchain reach its 1 billionth transaction in real-time',
   keywords: ['Flow', 'blockchain', 'transactions', 'countdown', 'EVM', 'Cadence'],
   openGraph: {
-    title: 'Flow 1 Billion Countdown',
+    title: 'Flow 1 Billion Txns Countdown',
     description: 'Watch Flow blockchain reach its 1 billionth transaction in real-time',
     type: 'website',
   },
   twitter: {
     card: 'summary_large_image',
-    title: 'Flow 1 Billion Countdown',
+    title: 'Flow 1 Billion Txns Countdown',
     description: 'Watch Flow blockchain reach its 1 billionth transaction in real-time',
   },
 };

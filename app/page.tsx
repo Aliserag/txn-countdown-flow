@@ -5,7 +5,6 @@ import { CountdownDisplay } from '@/components/countdown/CountdownDisplay';
 import { MilestoneProgress } from '@/components/countdown/MilestoneProgress';
 import { StatsPanel } from '@/components/stats/StatsPanel';
 import { TransactionFeed } from '@/components/transactions/TransactionFeed';
-import { ConnectionStatus } from '@/components/ConnectionStatus';
 import { WinnerModal } from '@/components/celebration/WinnerModal';
 
 export default function Home() {
@@ -14,16 +13,10 @@ export default function Home() {
       <main className="min-h-screen bg-flow-background bg-grid-pattern">
         {/* Header */}
         <header className="border-b border-flow-border/20">
-          <div className="max-w-7xl mx-auto px-4 py-4 flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-flow-primary to-emerald-500 flex items-center justify-center">
-                <span className="text-black font-bold text-sm">F</span>
-              </div>
-              <h1 className="text-xl font-semibold text-white">
-                Flow <span className="text-flow-primary">1B</span> Countdown
-              </h1>
-            </div>
-            <ConnectionStatus />
+          <div className="max-w-7xl mx-auto px-4 py-4">
+            <h1 className="text-xl font-semibold text-white text-center">
+              Flow <span className="text-flow-primary">1 Billion</span> Txns Countdown
+            </h1>
           </div>
         </header>
 
