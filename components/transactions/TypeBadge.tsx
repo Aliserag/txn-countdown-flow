@@ -11,22 +11,29 @@ export function TypeBadge({ type, isNew = false }: TypeBadgeProps) {
   const isCadence = type === 'cadence';
 
   return (
-    <motion.span
-      initial={isNew ? { scale: 0.8, opacity: 0 } : false}
-      animate={{ scale: 1, opacity: 1 }}
+    <div
       className={`
-        inline-flex items-center justify-center
-        px-2 py-0.5 rounded text-xs font-medium uppercase
+        relative flex-shrink-0 px-2 py-0.5 rounded text-[10px] font-mono font-medium uppercase tracking-wider
         ${isCadence
-          ? 'bg-flow-primary/20 text-flow-primary border border-flow-primary/30'
-          : 'bg-flow-evm/20 text-flow-evm border border-flow-evm/30'
+          ? 'bg-flow-green/10 text-flow-green'
+          : 'bg-flow-blue/10 text-flow-blue'
         }
-        ${isNew ? 'ring-2 ring-offset-2 ring-offset-flow-background' : ''}
-        ${isNew && isCadence ? 'ring-flow-primary/50' : ''}
-        ${isNew && !isCadence ? 'ring-flow-evm/50' : ''}
       `}
     >
-      {isCadence ? 'CAD' : 'EVM'}
-    </motion.span>
+      {isCadence ? 'CDC' : 'EVM'}
+
+      {/* Pulse effect for new transactions */}
+      {isNew && (
+        <motion.div
+          initial={{ opacity: 0.8, scale: 1 }}
+          animate={{ opacity: 0, scale: 1.5 }}
+          transition={{ duration: 0.6, ease: 'easeOut' }}
+          className={`
+            absolute inset-0 rounded
+            ${isCadence ? 'bg-flow-green' : 'bg-flow-blue'}
+          `}
+        />
+      )}
+    </div>
   );
 }

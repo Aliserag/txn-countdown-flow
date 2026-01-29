@@ -5,7 +5,6 @@ import { useVirtualizer } from '@tanstack/react-virtual';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useTransactions, useTransactionLoading } from '@/stores/transactionStore';
 import { TransactionRow } from './TransactionRow';
-import { Transaction } from '@/lib/flow/types';
 
 export function TransactionFeed() {
   const transactions = useTransactions();
@@ -14,7 +13,6 @@ export function TransactionFeed() {
   const [newTxIds, setNewTxIds] = useState<Set<string>>(new Set());
   const prevTxIdsRef = useRef<Set<string>>(new Set());
 
-  // Track new transactions
   useEffect(() => {
     const currentIds = new Set(transactions.map((tx) => tx.id));
     const newIds = new Set<string>();
@@ -27,12 +25,7 @@ export function TransactionFeed() {
 
     if (newIds.size > 0) {
       setNewTxIds(newIds);
-
-      // Clear "new" status after 3 seconds
-      const timer = setTimeout(() => {
-        setNewTxIds(new Set());
-      }, 3000);
-
+      const timer = setTimeout(() => setNewTxIds(new Set()), 3000);
       return () => clearTimeout(timer);
     }
 
@@ -42,19 +35,25 @@ export function TransactionFeed() {
   const virtualizer = useVirtualizer({
     count: transactions.length,
     getScrollElement: () => parentRef.current,
-    estimateSize: () => 60,
+    estimateSize: () => 56,
     overscan: 5,
   });
 
   if (isLoading && transactions.length === 0) {
     return (
-      <div className="bg-flow-surface/30 rounded-xl p-6">
-        <h2 className="text-lg font-semibold text-white mb-4">Live Transactions</h2>
-        <div className="space-y-3">
+      <div className="glass-card rounded-2xl overflow-hidden">
+        <div className="px-6 py-4 border-b border-border">
+          <div className="flex items-center gap-2">
+            <div className="w-1.5 h-1.5 rounded-full bg-flow-green pulse-dot" />
+            <span className="text-sm font-medium text-text-primary">Transactions</span>
+          </div>
+        </div>
+        <div className="p-4 space-y-2">
           {[...Array(5)].map((_, i) => (
             <div
               key={i}
-              className="h-14 bg-flow-surface rounded-lg animate-pulse"
+              className="h-12 bg-surface rounded-lg animate-pulse"
+              style={{ animationDelay: `${i * 100}ms` }}
             />
           ))}
         </div>
@@ -64,28 +63,42 @@ export function TransactionFeed() {
 
   if (transactions.length === 0) {
     return (
-      <div className="bg-flow-surface/30 rounded-xl p-6">
-        <h2 className="text-lg font-semibold text-white mb-4">Live Transactions</h2>
-        <div className="text-center py-12 text-gray-400">
-          <div className="text-4xl mb-4">📡</div>
-          <p>Waiting for transactions...</p>
+      <div className="glass-card rounded-2xl overflow-hidden">
+        <div className="px-6 py-4 border-b border-border">
+          <div className="flex items-center gap-2">
+            <div className="w-1.5 h-1.5 rounded-full bg-text-muted" />
+            <span className="text-sm font-medium text-text-primary">Transactions</span>
+          </div>
+        </div>
+        <div className="p-12 text-center">
+          <div className="w-12 h-12 rounded-full bg-surface flex items-center justify-center mx-auto mb-4">
+            <svg className="w-6 h-6 text-text-muted" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8.288 15.038a5.25 5.25 0 017.424 0M5.106 11.856c3.807-3.808 9.98-3.808 13.788 0M1.924 8.674c5.565-5.565 14.587-5.565 20.152 0M12 20.5h.01" />
+            </svg>
+          </div>
+          <p className="text-sm text-text-muted">Waiting for transactions...</p>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="bg-flow-surface/30 rounded-xl p-6">
-      <div className="flex items-center justify-between mb-4">
-        <h2 className="text-lg font-semibold text-white">Live Transactions</h2>
-        <span className="text-sm text-gray-400">
-          Showing {transactions.length} most recent
+    <div className="glass-card rounded-2xl overflow-hidden">
+      {/* Header */}
+      <div className="px-6 py-4 border-b border-border flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <div className="w-1.5 h-1.5 rounded-full bg-flow-green pulse-dot" />
+          <span className="text-sm font-medium text-text-primary">Transactions</span>
+        </div>
+        <span className="text-xs font-mono text-text-muted">
+          {transactions.length} recent
         </span>
       </div>
 
+      {/* Transaction List */}
       <div
         ref={parentRef}
-        className="h-[400px] overflow-auto rounded-lg"
+        className="h-[360px] overflow-auto"
         style={{ contain: 'strict' }}
       >
         <div

@@ -15,8 +15,11 @@ export function StatsPanel() {
         {[...Array(3)].map((_, i) => (
           <div
             key={i}
-            className="bg-flow-surface rounded-xl p-6 h-32 animate-pulse"
-          />
+            className="glass-card rounded-2xl p-6 h-28 animate-pulse"
+          >
+            <div className="h-3 w-24 bg-surface-elevated rounded mb-4" />
+            <div className="h-8 w-32 bg-surface-elevated rounded" />
+          </div>
         ))}
       </div>
     );
@@ -25,19 +28,21 @@ export function StatsPanel() {
   return (
     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
       <StatCard
-        label="Total Transactions"
+        label="Total"
         value={totalTransactions}
         type="total"
       />
       <StatCard
-        label="Cadence Transactions"
+        label="Cadence"
         value={cadenceCount}
         type="cadence"
+        description="Native Flow transactions"
       />
       <StatCard
-        label="EVM Transactions"
+        label="EVM"
         value={evmCount}
         type="evm"
+        description="Ethereum-compatible"
       />
     </div>
   );

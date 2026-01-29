@@ -8,10 +8,10 @@ interface StatCardProps {
   label: string;
   value: number;
   type?: 'total' | 'cadence' | 'evm';
-  showFullNumber?: boolean;
+  description?: string;
 }
 
-function AnimatedCounter({ value, showFull }: { value: number; showFull?: boolean }) {
+function AnimatedCounter({ value }: { value: number }) {
   const [displayValue, setDisplayValue] = useState(value);
   const prevValueRef = useRef(value);
 
@@ -20,14 +20,12 @@ function AnimatedCounter({ value, showFull }: { value: number; showFull?: boolea
 
     const startValue = prevValueRef.current;
     const endValue = value;
-    const duration = 500;
+    const duration = 600;
     const startTime = Date.now();
 
     const animate = () => {
       const elapsed = Date.now() - startTime;
       const progress = Math.min(elapsed / duration, 1);
-
-      // Easing function
       const eased = 1 - Math.pow(1 - progress, 3);
       const current = Math.round(startValue + (endValue - startValue) * eased);
 
@@ -44,47 +42,64 @@ function AnimatedCounter({ value, showFull }: { value: number; showFull?: boolea
 
   return (
     <span className="font-mono tabular-nums">
-      {showFull ? formatNumber(displayValue) : formatCompactNumber(displayValue)}
+      {formatCompactNumber(displayValue)}
     </span>
   );
 }
 
-export function StatCard({ label, value, type = 'total', showFullNumber = false }: StatCardProps) {
-  const accentColor = {
-    total: 'bg-white',
-    cadence: 'bg-flow-primary',
-    evm: 'bg-flow-evm',
-  }[type];
-
-  const textColor = {
-    total: 'text-white',
-    cadence: 'text-flow-primary',
-    evm: 'text-flow-evm',
+export function StatCard({ label, value, type = 'total', description }: StatCardProps) {
+  const colors = {
+    total: {
+      accent: 'bg-text-primary',
+      text: 'text-text-primary',
+      glow: 'rgba(250, 250, 250, 0.05)',
+    },
+    cadence: {
+      accent: 'bg-flow-green',
+      text: 'text-flow-green',
+      glow: 'rgba(0, 239, 139, 0.08)',
+    },
+    evm: {
+      accent: 'bg-flow-blue',
+      text: 'text-flow-blue',
+      glow: 'rgba(99, 102, 241, 0.08)',
+    },
   }[type];
 
   return (
     <motion.div
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
-      className="relative bg-flow-surface rounded-xl p-6 overflow-hidden"
+      className="relative glass-card rounded-2xl p-6 overflow-hidden group"
     >
-      {/* Accent bar */}
-      <div className={`absolute top-0 left-0 right-0 h-1 ${accentColor}`} />
+      {/* Subtle corner glow on hover */}
+      <div
+        className="absolute -top-20 -right-20 w-40 h-40 rounded-full blur-3xl opacity-0 group-hover:opacity-100 transition-opacity duration-500"
+        style={{ background: colors.glow }}
+      />
 
       {/* Content */}
-      <div className="space-y-2">
-        <div className="text-sm text-gray-400 uppercase tracking-wider">
-          {label}
+      <div className="relative">
+        {/* Label row */}
+        <div className="flex items-center gap-2 mb-4">
+          <div className={`w-1.5 h-1.5 rounded-full ${colors.accent}`} />
+          <span className="text-xs font-mono text-text-tertiary uppercase tracking-widest">
+            {label}
+          </span>
         </div>
-        <div className={`text-3xl md:text-4xl font-bold ${textColor}`}>
-          <AnimatedCounter value={value} showFull={showFullNumber} />
-        </div>
-      </div>
 
-      {/* Background glow */}
-      <div
-        className={`absolute -bottom-8 -right-8 w-32 h-32 rounded-full blur-3xl opacity-10 ${accentColor}`}
-      />
+        {/* Value */}
+        <div className={`text-2xl md:text-3xl font-semibold ${colors.text}`}>
+          <AnimatedCounter value={value} />
+        </div>
+
+        {/* Description */}
+        {description && (
+          <div className="mt-2 text-xs text-text-muted">
+            {description}
+          </div>
+        )}
+      </div>
     </motion.div>
   );
 }

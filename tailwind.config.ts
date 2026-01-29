@@ -9,61 +9,67 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
+        void: '#050508',
+        abyss: '#0a0a10',
+        surface: {
+          DEFAULT: '#0f0f18',
+          elevated: '#141420',
+        },
         flow: {
-          primary: '#00EF8B',
-          evm: '#3334F8',
-          background: '#0A0A0F',
-          surface: '#12121A',
-          surfaceHover: '#1A1A24',
-          border: '#2A2A35',
+          green: '#00EF8B',
+          'green-dim': 'rgba(0, 239, 139, 0.15)',
+          blue: '#6366F1',
+          'blue-dim': 'rgba(99, 102, 241, 0.15)',
+        },
+        border: {
+          DEFAULT: 'rgba(255, 255, 255, 0.06)',
+          subtle: 'rgba(255, 255, 255, 0.03)',
+        },
+        text: {
+          primary: '#FAFAFA',
+          secondary: 'rgba(250, 250, 250, 0.6)',
+          tertiary: 'rgba(250, 250, 250, 0.35)',
+          muted: 'rgba(250, 250, 250, 0.2)',
         }
       },
       fontFamily: {
-        display: ['Epilogue', 'system-ui', 'sans-serif'],
-        body: ['Inter', 'system-ui', 'sans-serif'],
-        mono: ['JetBrains Mono', 'monospace'],
+        display: ['Syne', 'Inter', 'sans-serif'],
+        body: ['Inter', '-apple-system', 'BlinkMacSystemFont', 'sans-serif'],
+        mono: ['JetBrains Mono', 'SF Mono', 'monospace'],
       },
       animation: {
-        'pulse-glow': 'pulse-glow 2s ease-in-out infinite',
-        'slide-in': 'slide-in 0.3s ease-out',
-        'fade-in': 'fade-in 0.2s ease-out',
-        'digit-roll': 'digit-roll 0.3s ease-out',
+        'fade-up': 'fade-up 0.6s ease-out forwards',
+        'fade-in': 'fade-in 0.4s ease-out forwards',
+        'scale-in': 'scale-in 0.5s ease-out forwards',
+        'pulse-slow': 'pulse 3s ease-in-out infinite',
+        'shimmer': 'shimmer 2s linear infinite',
       },
       keyframes: {
-        'pulse-glow': {
-          '0%, 100%': {
-            transform: 'scale(1)',
-            filter: 'brightness(1)'
-          },
-          '50%': {
-            transform: 'scale(1.02)',
-            filter: 'brightness(1.1)'
-          },
-        },
-        'slide-in': {
-          '0%': {
-            opacity: '0',
-            transform: 'translateX(-20px)'
-          },
-          '100%': {
-            opacity: '1',
-            transform: 'translateX(0)'
-          },
+        'fade-up': {
+          '0%': { opacity: '0', transform: 'translateY(20px)' },
+          '100%': { opacity: '1', transform: 'translateY(0)' },
         },
         'fade-in': {
           '0%': { opacity: '0' },
           '100%': { opacity: '1' },
         },
-        'digit-roll': {
-          '0%': {
-            transform: 'translateY(-100%)',
-            opacity: '0'
-          },
-          '100%': {
-            transform: 'translateY(0)',
-            opacity: '1'
-          },
+        'scale-in': {
+          '0%': { opacity: '0', transform: 'scale(0.95)' },
+          '100%': { opacity: '1', transform: 'scale(1)' },
         },
+        'shimmer': {
+          '0%': { backgroundPosition: '-200% 0' },
+          '100%': { backgroundPosition: '200% 0' },
+        },
+      },
+      boxShadow: {
+        'glow-green': '0 0 20px rgba(0, 239, 139, 0.15), 0 0 60px rgba(0, 239, 139, 0.1)',
+        'glow-green-intense': '0 0 30px rgba(0, 239, 139, 0.3), 0 0 80px rgba(0, 239, 139, 0.2)',
+        'inner-glow': 'inset 0 1px 0 rgba(255, 255, 255, 0.05)',
+      },
+      backgroundImage: {
+        'gradient-radial': 'radial-gradient(var(--tw-gradient-stops))',
+        'shimmer': 'linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.1) 50%, transparent 100%)',
       },
     },
   },
