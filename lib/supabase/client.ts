@@ -1,7 +1,10 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
 // Server-side only — never import in client components.
-// Lazy singleton so the client isn't created at module load time during build.
+// Uses the anon key; mutations are gated behind SECURITY DEFINER RPC functions
+// which enforce atomicity and run as postgres (bypassing RLS).
+// The anon key is stored as a non-NEXT_PUBLIC env var so it never reaches the browser.
+
 let _client: SupabaseClient | null = null;
 
 export function getSupabase(): SupabaseClient {
@@ -14,12 +17,11 @@ export function getSupabase(): SupabaseClient {
   return _client;
 }
 
-// Convenience re-export for callers that want direct access
-export const supabase = new Proxy({} as SupabaseClient, {
-  get(_target, prop) {
-    return (getSupabase() as any)[prop];
-  },
-});
+// Direct named export — no Proxy indirection
+export const supabase = {
+  from: (...args: Parameters<SupabaseClient['from']>) => getSupabase().from(...args),
+  rpc: (...args: Parameters<SupabaseClient['rpc']>) => getSupabase().rpc(...args),
+} as unknown as SupabaseClient;
 
 export interface TransactionState {
   id: number;

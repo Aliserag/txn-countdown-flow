@@ -79,23 +79,25 @@ export function WinnerModal() {
                     Transaction #1,000,000,000
                   </div>
                   <div className="font-mono text-xs text-flow-green break-all leading-relaxed">
-                    {winner.transaction.id}
+                    {winner.transaction?.id ?? '—'}
                   </div>
                   <div className="flex items-center justify-center gap-4 mt-4">
                     <span
                       className={`
                         px-2.5 py-1 rounded text-[10px] font-mono uppercase tracking-wider
-                        ${winner.transaction.type === 'cadence'
+                        ${winner.transaction?.type === 'cadence'
                           ? 'bg-flow-green/10 text-flow-green'
                           : 'bg-flow-blue/10 text-flow-blue'
                         }
                       `}
                     >
-                      {winner.transaction.type === 'cadence' ? 'CDC' : 'EVM'}
+                      {winner.transaction?.type === 'cadence' ? 'CDC' : 'EVM'}
                     </span>
-                    <span className="text-xs text-text-muted font-mono">
-                      {formatAddress(winner.transaction.proposer, 8, 6)}
-                    </span>
+                    {winner.transaction?.proposer && (
+                      <span className="text-xs text-text-muted font-mono">
+                        {formatAddress(winner.transaction.proposer, 8, 6)}
+                      </span>
+                    )}
                   </div>
                 </motion.div>
 
@@ -106,17 +108,23 @@ export function WinnerModal() {
                   transition={{ delay: 0.6 }}
                   className="flex flex-col sm:flex-row gap-3 justify-center"
                 >
-                  <a
-                    href={`https://flowscan.io/transaction/${winner.transaction.id}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="px-6 py-3 bg-flow-green text-void font-medium text-sm rounded-lg hover:bg-flow-green/90 transition-all duration-200 hover:shadow-glow-green"
-                  >
-                    View on Flowscan
-                  </a>
+                  {winner.transaction?.id && (
+                    <a
+                      href={
+                        winner.transaction.type === 'evm'
+                          ? `https://evm.flowscan.io/tx/${winner.transaction.id}`
+                          : `https://flowscan.io/transaction/${winner.transaction.id}`
+                      }
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="px-6 py-3 bg-flow-green text-void font-medium text-sm rounded-lg hover:bg-flow-green/90 transition-all duration-200 hover:shadow-glow-green"
+                    >
+                      View on Flowscan
+                    </a>
+                  )}
                   <a
                     href={`https://twitter.com/intent/tweet?text=${encodeURIComponent(
-                      `Flow just hit 1 BILLION transactions.\n\nThe historic billionth: flowscan.io/transaction/${winner.transaction.id}`
+                      `Flow just hit 1 BILLION transactions!\n\nThe historic billionth transaction is live on-chain.`
                     )}`}
                     target="_blank"
                     rel="noopener noreferrer"

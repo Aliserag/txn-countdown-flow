@@ -24,12 +24,17 @@ export function DataProvider({ children }: DataProviderProps) {
         if (!response.ok) throw new Error('Failed to fetch stats');
 
         const stats = await response.json();
-        setStats({
-          total: stats.total,
-          evm: stats.evm,
-          cadence: stats.cadence,
-          blockHeight: stats.blockHeight,
-        });
+        // Only apply the re-sync if it would advance (not roll back) the counter.
+        // The SSE stream can be ahead of the DB by a few seconds; never snap backward.
+        const currentTotal = useStatsStore.getState().totalTransactions;
+        if (!currentTotal || stats.total >= currentTotal) {
+          setStats({
+            total: stats.total,
+            evm: stats.evm,
+            cadence: stats.cadence,
+            blockHeight: stats.blockHeight,
+          });
+        }
 
         if (isInitial) setLoading(false);
       } catch (error) {

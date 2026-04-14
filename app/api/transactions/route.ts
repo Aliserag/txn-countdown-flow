@@ -9,7 +9,7 @@ const EVM_FLOWSCAN_API = 'https://evm.flowscan.io/api/v2';
 const POLL_INTERVAL = 3000;
 const EVM_POLL_INTERVAL = 30000;
 const TARGET_MILESTONE = 1_000_000_000;
-// Re-sync from live APIs if DB state is this many blocks behind current chain
+// Re-sync from live APIs if DB is this many blocks behind the chain tip.
 const STALE_THRESHOLD = 100;
 
 const BASELINE = {
@@ -42,7 +42,7 @@ async function fetchLatestBlock(): Promise<any> {
   } catch { return null; }
 }
 
-// Authoritative on-chain Cadence tx count for a block via execution_results.
+// Authoritative on-chain Cadence tx count via execution_results.
 async function fetchBlockTxCount(blockId: string): Promise<number> {
   try {
     const res = await fetchWithTimeout(`${FLOW_ACCESS_API}/execution_results?block_id=${blockId}`, 4000);
@@ -54,7 +54,8 @@ async function fetchBlockTxCount(blockId: string): Promise<number> {
   } catch { return 0; }
 }
 
-// Sample real tx IDs from first collection for feed display — best-effort, doesn't affect counting.
+// Sample real tx IDs from a block's first collection for feed display.
+// Best-effort — never affects counting.
 async function fetchSampleTxIds(blockId: string, blockHeight: number): Promise<any[]> {
   try {
     const blockRes = await fetchWithTimeout(`${FLOW_ACCESS_API}/blocks/${blockId}?expand=payload`, 3000);
@@ -67,8 +68,7 @@ async function fetchSampleTxIds(blockId: string, blockHeight: number): Promise<a
       `${FLOW_ACCESS_API}/collections/${guarantees[0].collection_id}`, 2000
     );
     if (!colRes.ok) return [];
-    const collection = await colRes.json();
-    const txIds: string[] = collection?.transactions ?? [];
+    const txIds: string[] = (await colRes.json())?.transactions ?? [];
 
     return txIds.slice(0, 6).map((txId: string) => ({
       id: txId,
@@ -87,6 +87,23 @@ async function fetchLiveEvmTotal(): Promise<number> {
     const data = await res.json();
     return parseInt(data?.total_transactions || '0', 10);
   } catch { return 0; }
+}
+
+// Fetch the most recent EVM transaction for the winner record.
+// When EVM transactions push the total over the milestone we need a real,
+// verifiable on-chain tx ID — not a synthetic placeholder.
+async function fetchLatestEvmTx(blockHeight: number): Promise<{ id: string; type: 'evm'; proposer: string; blockHeight: number }> {
+  try {
+    const res = await fetchWithTimeout(`${EVM_FLOWSCAN_API}/transactions?limit=1`, 5000);
+    if (!res.ok) throw new Error('EVM tx fetch failed');
+    const data = await res.json();
+    const tx = data?.items?.[0];
+    if (tx?.hash) {
+      return { id: tx.hash, type: 'evm', proposer: tx.from ?? 'unknown', blockHeight };
+    }
+  } catch { /* fall through */ }
+  // If we can't get the actual tx, return a best-effort record with the block hash
+  return { id: `evm-block-${blockHeight}`, type: 'evm', proposer: 'unknown', blockHeight };
 }
 
 export async function GET(request: NextRequest) {
@@ -108,7 +125,7 @@ export async function GET(request: NextRequest) {
 
       emit({ type: 'heartbeat', data: { timestamp: Date.now() } });
 
-      // ── Bootstrap: load authoritative state from Supabase ────────────────
+      // ── Bootstrap: load authoritative state from Supabase ─────────────────
       const { data: dbState, error: dbError } = await supabase
         .from('transaction_state')
         .select('*')
@@ -121,7 +138,6 @@ export async function GET(request: NextRequest) {
         return;
       }
 
-      // Check if DB state is stale vs current chain
       const latestBlock = await fetchLatestBlock();
       const currentHeight = latestBlock ? parseInt(latestBlock.header.height, 10) : 0;
 
@@ -129,18 +145,20 @@ export async function GET(request: NextRequest) {
       let evmCount = dbState.evm_count;
       let lastBlockHeight = dbState.last_block_height;
 
+      // Re-sync if DB state is stale — but only if the estimate is larger than
+      // what's already in the DB (prevents overwriting a higher accurate count).
       if (currentHeight > 0 && currentHeight - lastBlockHeight > STALE_THRESHOLD) {
-        // Jump to current state using live API estimates
         const liveEvm = await fetchLiveEvmTotal();
         const blockDelta = Math.max(0, currentHeight - BASELINE.blockHeight);
-        const cadence = Math.round(BASELINE.cadence + blockDelta * BASELINE.cadenceTxPerBlock);
-        const evm = liveEvm > 0 ? liveEvm : Math.round(BASELINE.evm + blockDelta * BASELINE.evmTxPerBlock);
+        const cadenceEst = Math.round(BASELINE.cadence + blockDelta * BASELINE.cadenceTxPerBlock);
+        const evmEst = liveEvm > 0 ? liveEvm : Math.round(BASELINE.evm + blockDelta * BASELINE.evmTxPerBlock);
 
+        // resync_state only writes if (p_cadence + p_evm) > current DB total
         const { data: resynced } = await supabase.rpc('resync_state', {
-          p_cadence: cadence,
-          p_evm: evm,
+          p_cadence: cadenceEst,
+          p_evm: evmEst,
           p_block_height: currentHeight - 1,
-          p_evm_total: evm,
+          p_evm_total: evmEst,
         });
 
         if (resynced) {
@@ -150,25 +168,18 @@ export async function GET(request: NextRequest) {
         }
       }
 
-      // Send authoritative initial totals to client
       emit({
         type: 'stats',
-        data: {
-          total: cadenceCount + evmCount,
-          cadence: cadenceCount,
-          evm: evmCount,
-          blockHeight: lastBlockHeight,
-          timestamp: Date.now(),
-        },
+        data: { total: cadenceCount + evmCount, cadence: cadenceCount, evm: evmCount, blockHeight: lastBlockHeight, timestamp: Date.now() },
       });
 
-      // ── Poll loop ────────────────────────────────────────────────────────
+      // ── Poll loop ──────────────────────────────────────────────────────────
       const poll = async () => {
         if (!isRunning) return;
         const now = Date.now();
 
         try {
-          // ── EVM sync every 30s ──────────────────────────────────────────
+          // ── EVM sync every 30s ────────────────────────────────────────────
           if (now - lastEvmPollTime >= EVM_POLL_INTERVAL) {
             lastEvmPollTime = now;
             const liveEvm = await fetchLiveEvmTotal();
@@ -187,16 +198,21 @@ export async function GET(request: NextRequest) {
                   });
 
                   if (total >= TARGET_MILESTONE) {
-                    const { data: isFirst } = await supabase.rpc('claim_winner', {
-                      p_milestone: TARGET_MILESTONE,
-                      p_transaction_id: 'evm-milestone',
-                      p_transaction_type: 'evm',
-                      p_block_height: lastBlockHeight,
-                      p_proposer: 'unknown',
-                      p_total: total,
+                    // Fetch real EVM transaction for the winner record
+                    const evmWinnerTx = await fetchLatestEvmTx(lastBlockHeight);
+                    const isFirst = await claimWinner(total, {
+                      id: evmWinnerTx.id,
+                      type: 'evm',
+                      blockHeight: lastBlockHeight,
+                      proposer: evmWinnerTx.proposer,
                     });
                     if (isFirst) {
-                      emit({ type: 'winner', data: { transaction: null, total, milestone: TARGET_MILESTONE, timestamp: Date.now() } });
+                      emit({ type: 'winner', data: {
+                        transaction: { ...evmWinnerTx, number: total, timestamp: Date.now(), status: 'sealed' },
+                        total,
+                        milestone: TARGET_MILESTONE,
+                        timestamp: Date.now(),
+                      }});
                     }
                   }
                 }
@@ -204,7 +220,7 @@ export async function GET(request: NextRequest) {
             }
           }
 
-          // ── Cadence block polling ───────────────────────────────────────
+          // ── Cadence block polling ─────────────────────────────────────────
           const block = await fetchLatestBlock();
           if (!block) {
             emit({ type: 'heartbeat', data: { timestamp: Date.now() } });
@@ -225,9 +241,8 @@ export async function GET(request: NextRequest) {
           ]);
 
           if (cadenceDelta > 0) {
-            // Atomic RPC: only increments if blockHeight > last_block_height in DB.
-            // Multiple concurrent SSE connections racing on the same block:
-            // only the first one returns updated=true.
+            // Atomic RPC: only the first SSE instance to call this for a given
+            // block height advances the counter. Concurrent callers get updated=false.
             const { data: result } = await supabase.rpc('increment_cadence', {
               block_height_new: blockHeight,
               cadence_delta: cadenceDelta,
@@ -240,12 +255,10 @@ export async function GET(request: NextRequest) {
               const total = result.total;
 
               if (result.updated) {
-                // This instance won the race — emit transaction events
                 const txsToEmit = sampleTxs.length > 0
                   ? sampleTxs
                   : [{ id: block.header.id.slice(0, 40), type: 'cadence' as const, proposer: `0x${block.header.id.slice(0, 16)}`, blockHeight, simulated: false }];
 
-                // First tx carries the authoritative running total + block count
                 const firstTx = { ...txsToEmit[0], number: total, blockTxCount: cadenceDelta, timestamp: Date.now(), status: 'sealed' };
                 emit({ type: 'transaction', data: firstTx });
 
@@ -253,25 +266,28 @@ export async function GET(request: NextRequest) {
                   emit({ type: 'transaction', data: { ...tx, number: total, timestamp: Date.now(), status: 'sealed', countedInFirst: true } });
                 }
 
-                // Server-side winner detection — DB-backed, first-write-wins
                 if (total >= TARGET_MILESTONE) {
-                  const { data: isFirst } = await supabase.rpc('claim_winner', {
-                    p_milestone: TARGET_MILESTONE,
-                    p_transaction_id: firstTx.id,
-                    p_transaction_type: firstTx.type,
-                    p_block_height: blockHeight,
-                    p_proposer: firstTx.proposer,
-                    p_total: total,
+                  const isFirst = await claimWinner(total, {
+                    id: firstTx.id,
+                    type: firstTx.type,
+                    blockHeight,
+                    proposer: firstTx.proposer,
                   });
                   if (isFirst) {
-                    emit({ type: 'winner', data: { transaction: firstTx, total, milestone: TARGET_MILESTONE, timestamp: Date.now() } });
+                    emit({ type: 'winner', data: {
+                      transaction: firstTx,
+                      total,
+                      milestone: TARGET_MILESTONE,
+                      timestamp: Date.now(),
+                    }});
                   }
                 }
               }
             }
           } else {
-            // Empty block — still advance the height marker via RPC
-            await supabase.rpc('increment_cadence', { block_height_new: blockHeight, cadence_delta: 0 });
+            // Empty block — advance local height tracker only.
+            // No DB write: the next non-empty block's increment_cadence call will
+            // still satisfy the WHERE condition (new_height > last_block_height_in_db).
             lastBlockHeight = blockHeight;
           }
 
@@ -300,4 +316,21 @@ export async function GET(request: NextRequest) {
       'Connection': 'keep-alive',
     },
   });
+}
+
+async function claimWinner(
+  total: number,
+  tx: { id: string; type: string; blockHeight: number; proposer: string }
+): Promise<boolean> {
+  try {
+    const { data } = await supabase.rpc('claim_winner', {
+      p_milestone: TARGET_MILESTONE,
+      p_transaction_id: tx.id,
+      p_transaction_type: tx.type,
+      p_block_height: tx.blockHeight,
+      p_proposer: tx.proposer,
+      p_total: total,
+    });
+    return data === true;
+  } catch { return false; }
 }

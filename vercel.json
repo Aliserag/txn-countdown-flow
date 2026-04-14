@@ -1,5 +1,10 @@
 {
   "framework": "nextjs",
   "buildCommand": "npm run build",
-  "outputDirectory": ".next"
+  "outputDirectory": ".next",
+  "functions": {
+    "app/api/transactions/route.ts": {
+      "maxDuration": 800
+    }
+  }
 }

@@ -6,7 +6,7 @@ import { useStatsStore } from '@/stores/statsStore';
 import { Transaction } from '@/lib/flow/types';
 
 interface SSEMessage {
-  type: 'transaction' | 'batch' | 'stats' | 'heartbeat' | 'error' | 'winner';
+  type: 'transaction' | 'stats' | 'heartbeat' | 'error' | 'winner';
   data: any;
 }
 
@@ -14,10 +14,8 @@ export function useTransactionStream() {
   const eventSourceRef = useRef<EventSource | null>(null);
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const reconnectAttemptsRef = useRef(0);
-  const maxReconnectAttempts = 10;
 
   const addTransaction = useTransactionStore((state) => state.addTransaction);
-  const addTransactions = useTransactionStore((state) => state.addTransactions);
   const setStats = useStatsStore((state) => state.setStats);
   const incrementStats = useStatsStore((state) => state.incrementStats);
   const setConnectionStatus = useStatsStore((state) => state.setConnectionStatus);
@@ -63,15 +61,6 @@ export function useTransactionStream() {
               handleTransaction(message.data);
               break;
 
-            case 'batch':
-              if (Array.isArray(message.data)) {
-                addTransactions(message.data);
-                message.data.forEach((tx: Transaction) => {
-                  if (!tx.simulated) incrementStats(tx.type);
-                });
-              }
-              break;
-
             case 'stats':
               // Full authoritative sync from server (initial load or EVM update)
               setStats(message.data);
@@ -108,22 +97,17 @@ export function useTransactionStream() {
         setConnectionStatus(false, 'Connection lost');
         eventSource.close();
 
-        // Attempt to reconnect
-        if (reconnectAttemptsRef.current < maxReconnectAttempts) {
-          const delay = Math.min(1000 * Math.pow(2, reconnectAttemptsRef.current), 30000);
-          reconnectAttemptsRef.current++;
-          console.log(`Reconnecting in ${delay}ms (attempt ${reconnectAttemptsRef.current})`);
-
-          reconnectTimeoutRef.current = setTimeout(() => {
-            connect();
-          }, delay);
-        }
+        // Reconnect indefinitely with exponential backoff capped at 30s
+        const delay = Math.min(1000 * Math.pow(2, reconnectAttemptsRef.current), 30000);
+        reconnectAttemptsRef.current++;
+        console.log(`Reconnecting in ${delay}ms (attempt ${reconnectAttemptsRef.current})`);
+        reconnectTimeoutRef.current = setTimeout(() => { connect(); }, delay);
       };
     } catch (error) {
       console.error('Failed to create EventSource:', error);
       setConnectionStatus(false, 'Failed to connect');
     }
-  }, [addTransactions, handleTransaction, incrementStats, setConnectionStatus, setStats, setWinner]);
+  }, [handleTransaction, setConnectionStatus, setStats, setWinner]);
 
   const disconnect = useCallback(() => {
     if (reconnectTimeoutRef.current) {

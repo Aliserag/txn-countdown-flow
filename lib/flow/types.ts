@@ -53,7 +53,7 @@ export interface Stats {
 }
 
 export interface WinnerInfo {
-  transaction: Transaction;
+  transaction: Transaction | null;
   timestamp: number;
   celebrationShown: boolean;
 }
