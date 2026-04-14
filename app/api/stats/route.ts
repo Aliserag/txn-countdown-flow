@@ -25,8 +25,8 @@ export async function GET() {
     // Read DB state + live EVM in parallel
     const [dbResult, evmResult, blockResult] = await Promise.all([
       supabase.from('transaction_state').select('*').eq('id', 1).single<TransactionState>(),
-      fetchWithTimeout(`${EVM_FLOWSCAN_API}/stats`).then(r => r.json()).catch(() => null),
-      fetchWithTimeout(`${FLOW_ACCESS_API}/blocks?height=sealed`).then(r => r.json()).catch(() => null),
+      fetchWithTimeout(`${EVM_FLOWSCAN_API}/stats`).then(r => r.json()).catch(err => { console.error('EVM stats fetch failed:', err); return null; }),
+      fetchWithTimeout(`${FLOW_ACCESS_API}/blocks?height=sealed`).then(r => r.json()).catch(err => { console.error('Block height fetch failed:', err); return null; }),
     ]);
 
     const dbState = dbResult.data;
@@ -42,8 +42,12 @@ export async function GET() {
     // If live EVM is fresher, sync it into DB
     let evmCount = dbState.evm_count;
     if (liveEvm > dbState.last_evm_total) {
-      const { data: synced } = await supabase.rpc('sync_evm', { new_evm_total: liveEvm });
-      if (synced) evmCount = synced.evm_count;
+      const { data: synced, error: syncError } = await supabase.rpc('sync_evm', { new_evm_total: liveEvm });
+      if (syncError) {
+        console.error('sync_evm RPC failed in /api/stats:', syncError);
+      } else if (synced) {
+        evmCount = synced.evm_count;
+      }
     }
 
     return NextResponse.json(

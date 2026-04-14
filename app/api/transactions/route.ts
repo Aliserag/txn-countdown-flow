@@ -108,8 +108,10 @@ async function fetchLatestEvmTx(blockHeight: number): Promise<{ id: string; type
     if (tx?.hash) {
       return { id: tx.hash, type: 'evm', proposer: tx.from ?? 'unknown', blockHeight };
     }
-  } catch { /* fall through */ }
-  // If we can't get the actual tx, return a best-effort record with the block hash
+  } catch (err) {
+    console.warn(`fetchLatestEvmTx failed for block ${blockHeight} — using synthetic fallback:`, err);
+  }
+  // Fallback: synthetic ID, not a real on-chain hash. Will be flagged in winner record.
   return { id: `evm-block-${blockHeight}`, type: 'evm', proposer: 'unknown', blockHeight };
 }
 
@@ -161,15 +163,17 @@ export async function GET(request: NextRequest) {
         const cadenceEst = Math.round(BASELINE.cadence + blockDelta * BASELINE.cadenceTxPerBlock);
         const evmEst = liveEvm > 0 ? liveEvm : Math.round(BASELINE.evm + blockDelta * BASELINE.evmTxPerBlock);
 
-        // resync_state only writes if (p_cadence + p_evm) > current DB total
-        const { data: resynced } = await supabase.rpc('resync_state', {
+        // resync_state only writes if both components are non-decreasing and total is higher
+        const { data: resynced, error: resyncError } = await supabase.rpc('resync_state', {
           p_cadence: cadenceEst,
           p_evm: evmEst,
           p_block_height: currentHeight - 1,
           p_evm_total: evmEst,
         });
 
-        if (resynced) {
+        if (resyncError) {
+          console.error('resync_state RPC failed:', resyncError);
+        } else if (resynced) {
           cadenceCount = resynced.cadence_count;
           evmCount = resynced.evm_count;
           lastBlockHeight = currentHeight - 1;
@@ -193,8 +197,10 @@ export async function GET(request: NextRequest) {
             const liveEvm = await fetchLiveEvmTotal();
 
             if (liveEvm > 0) {
-              const { data: result } = await supabase.rpc('sync_evm', { new_evm_total: liveEvm });
-              if (result) {
+              const { data: result, error: evmSyncError } = await supabase.rpc('sync_evm', { new_evm_total: liveEvm });
+              if (evmSyncError) {
+                console.error('sync_evm RPC failed:', evmSyncError);
+              } else if (result) {
                 evmCount = result.evm_count;
                 cadenceCount = result.cadence_count;
                 const total = result.total;
@@ -259,12 +265,15 @@ export async function GET(request: NextRequest) {
           if (cadenceDelta > 0) {
             // Atomic RPC: only the first SSE instance to call this for a given
             // block height advances the counter. Concurrent callers get updated=false.
-            const { data: result } = await supabase.rpc('increment_cadence', {
+            const { data: result, error: cadenceError } = await supabase.rpc('increment_cadence', {
               block_height_new: blockHeight,
               cadence_delta: cadenceDelta,
             });
 
-            if (result) {
+            if (cadenceError) {
+              console.error(`increment_cadence RPC failed for block ${blockHeight}:`, cadenceError);
+              // Do not advance lastBlockHeight — retry on next poll.
+            } else if (result) {
               cadenceCount = result.cadence_count;
               evmCount = result.evm_count;
               lastBlockHeight = blockHeight;
