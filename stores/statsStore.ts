@@ -74,12 +74,18 @@ export const useStatsStore = create<StatsState>()(
     },
 
     setWinner: (transaction) => {
-      set({
-        winner: {
-          transaction,
-          timestamp: Date.now(),
-          celebrationShown: false,
-        },
+      set((state) => {
+        // Don't re-show a modal the user already dismissed.
+        // Duplicate winner events (reconnect replay, two-instance race) must not
+        // resurrect the celebration after the user clicked Continue.
+        if (state.winner?.celebrationShown) return state;
+        return {
+          winner: {
+            transaction,
+            timestamp: Date.now(),
+            celebrationShown: false,
+          },
+        };
       });
     },
 

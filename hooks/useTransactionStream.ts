@@ -62,11 +62,16 @@ export function useTransactionStream() {
               break;
 
             case 'stats': {
-              // Forward-only guard: never roll the displayed counter backward.
-              // The SSE stream can be behind the DB on reconnect; ignore stale snapshots.
-              const currentTotal = useStatsStore.getState().totalTransactions;
-              if (!currentTotal || message.data.total >= currentTotal) {
-                setStats(message.data);
+              // Forward-only guard on total AND sub-counts: never roll any counter backward.
+              // On reconnect the server snapshot can lag behind what the SSE stream has
+              // already incremented locally, so we take the max of each component.
+              const cur = useStatsStore.getState();
+              if (!cur.totalTransactions || message.data.total >= cur.totalTransactions) {
+                setStats({
+                  ...message.data,
+                  evm: Math.max(message.data.evm ?? 0, cur.evmCount),
+                  cadence: Math.max(message.data.cadence ?? 0, cur.cadenceCount),
+                });
               }
               break;
             }

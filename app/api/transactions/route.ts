@@ -329,7 +329,7 @@ export async function GET(request: NextRequest) {
               if (result.updated) {
                 const txsToEmit = sampleTxs.length > 0
                   ? sampleTxs
-                  : [{ id: block.header.id.slice(0, 40), type: 'cadence' as const, proposer: `0x${block.header.id.slice(0, 16)}`, blockHeight, simulated: false }];
+                  : [{ id: block.header.id, type: 'cadence' as const, proposer: `0x${block.header.id.slice(0, 16)}`, blockHeight, simulated: false }];
 
                 const firstTx = { ...txsToEmit[0], number: total, blockTxCount: cadenceDelta, timestamp: Date.now(), status: 'sealed' };
                 emit({ type: 'transaction', data: firstTx });
