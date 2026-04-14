@@ -43,15 +43,22 @@ async function fetchLatestBlock(): Promise<any> {
 }
 
 // Authoritative on-chain Cadence tx count via execution_results.
-async function fetchBlockTxCount(blockId: string): Promise<number> {
+// Returns null on fetch failure (retry next poll), 0 for genuine empty blocks.
+async function fetchBlockTxCount(blockId: string): Promise<number | null> {
   try {
     const res = await fetchWithTimeout(`${FLOW_ACCESS_API}/execution_results?block_id=${blockId}`, 4000);
-    if (!res.ok) return 0;
+    if (!res.ok) {
+      console.error(`fetchBlockTxCount: HTTP ${res.status} for block ${blockId}`);
+      return null;
+    }
     const results = await res.json();
     if (!Array.isArray(results) || results.length === 0) return 0;
     const chunks: any[] = results[0]?.chunks ?? [];
     return chunks.reduce((sum, c) => sum + (parseInt(c.number_of_transactions, 10) || 0), 0);
-  } catch { return 0; }
+  } catch (err) {
+    console.error(`fetchBlockTxCount error for block ${blockId}:`, err);
+    return null;
+  }
 }
 
 // Sample real tx IDs from a block's first collection for feed display.
@@ -118,7 +125,8 @@ export async function GET(request: NextRequest) {
         if (!isRunning) return;
         try {
           controller.enqueue(encoder.encode(`data: ${JSON.stringify(payload)}\n\n`));
-        } catch {
+        } catch (err) {
+          console.error('SSE emit error — stream closed:', err);
           isRunning = false;
         }
       };
@@ -240,6 +248,14 @@ export async function GET(request: NextRequest) {
             fetchSampleTxIds(block.header.id, blockHeight),
           ]);
 
+          // null means the API call failed — do NOT advance lastBlockHeight.
+          // We'll retry on the next poll cycle rather than permanently skip the block.
+          if (cadenceDelta === null) {
+            console.error(`Block ${blockHeight} tx count unavailable, will retry next poll`);
+            emit({ type: 'heartbeat', data: { timestamp: Date.now(), blockHeight } });
+            return;
+          }
+
           if (cadenceDelta > 0) {
             // Atomic RPC: only the first SSE instance to call this for a given
             // block height advances the counter. Concurrent callers get updated=false.
@@ -332,5 +348,15 @@ async function claimWinner(
       p_total: total,
     });
     return data === true;
-  } catch { return false; }
+  } catch (err) {
+    console.error('CRITICAL: claimWinner RPC failed — winner may not be recorded in DB!', {
+      milestone: TARGET_MILESTONE,
+      txId: tx.id,
+      txType: tx.type,
+      blockHeight: tx.blockHeight,
+      total,
+      error: String(err),
+    });
+    return false;
+  }
 }

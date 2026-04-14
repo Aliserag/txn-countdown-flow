@@ -22,7 +22,7 @@ interface StatsState {
   // Actions
   setStats: (stats: { total: number; evm: number; cadence: number; blockHeight?: number }) => void;
   incrementStats: (type: 'evm' | 'cadence', count?: number) => void;
-  setWinner: (transaction: Transaction) => void;
+  setWinner: (transaction: Transaction | null) => void;
   dismissCelebration: () => void;
   setConnectionStatus: (connected: boolean, error?: string | null) => void;
   updateHeartbeat: () => void;

@@ -61,10 +61,15 @@ export function useTransactionStream() {
               handleTransaction(message.data);
               break;
 
-            case 'stats':
-              // Full authoritative sync from server (initial load or EVM update)
-              setStats(message.data);
+            case 'stats': {
+              // Forward-only guard: never roll the displayed counter backward.
+              // The SSE stream can be behind the DB on reconnect; ignore stale snapshots.
+              const currentTotal = useStatsStore.getState().totalTransactions;
+              if (!currentTotal || message.data.total >= currentTotal) {
+                setStats(message.data);
+              }
               break;
+            }
 
             case 'winner':
               // Server-side winner confirmed — DB record already written.
