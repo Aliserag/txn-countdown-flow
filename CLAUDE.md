@@ -39,14 +39,15 @@ Total Transactions = Cadence Transactions + EVM Transactions
 |--------|----------|------|
 | Flowscan EVM API | `evm.flowscan.io/api/v2/stats` | Live EVM count |
 | Flow Access API | `rest-mainnet.onflow.org/v1/blocks` | Block height |
-| Find Labs (optional) | `api.find.xyz/status/v1/stats` | Live Cadence count |
+| Find Labs (optional) | `api.find.xyz/status/v1/flow/stat` | Live Cadence count |
 
 ### Baseline Data (lib/flow/api.ts)
 When APIs unavailable, estimates from baseline + block delta:
-- Block: 140,493,759
-- Cadence: 893,633,531
-- EVM: 58,919,576
-- Growth rate: ~6.3 Cadence tx/block, ~0.4 EVM tx/block
+- Block: 148,358,201 (updated Apr 13, 2026)
+- Cadence: 907,924,122 (updated Apr 13, 2026)
+- EVM: 60,766,734 (updated Apr 13, 2026)
+- Growth rate: ~1.82 Cadence tx/block, ~0.235 EVM tx/block
+- **Update this baseline periodically** — stale rates cause large drift near the 1B milestone
 
 ## Project Structure
 
@@ -81,8 +82,10 @@ lib/
 ## Environment Variables
 
 ```env
-# Optional: For accurate Cadence count (requires Find Labs "status" API group)
-FINDLABS_API_KEY=your_api_key_here
+# Optional: For live Cadence count via Find Labs API
+# Account must have "status/v1" API group — contact Find Labs to enable it
+FINDLABS_USERNAME=your_username
+FINDLABS_PASSWORD=your_password
 ```
 
 ## Deployment

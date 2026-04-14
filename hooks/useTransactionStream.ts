@@ -6,7 +6,7 @@ import { useStatsStore } from '@/stores/statsStore';
 import { Transaction } from '@/lib/flow/types';
 
 interface SSEMessage {
-  type: 'transaction' | 'batch' | 'stats' | 'heartbeat' | 'error';
+  type: 'transaction' | 'batch' | 'stats' | 'heartbeat' | 'error' | 'winner';
   data: any;
 }
 
@@ -22,21 +22,21 @@ export function useTransactionStream() {
   const incrementStats = useStatsStore((state) => state.incrementStats);
   const setConnectionStatus = useStatsStore((state) => state.setConnectionStatus);
   const setWinner = useStatsStore((state) => state.setWinner);
-  const targetMilestone = useStatsStore((state) => state.targetMilestone);
-  const totalTransactions = useStatsStore((state) => state.totalTransactions);
 
   const handleTransaction = useCallback(
     (transaction: Transaction) => {
       addTransaction(transaction);
-      incrementStats(transaction.type);
 
-      // Check for winner
-      const currentTotal = useStatsStore.getState().totalTransactions;
-      if (currentTotal >= targetMilestone) {
-        setWinner(transaction);
+      // Only count verified on-chain transactions toward the milestone.
+      // countedInFirst means this tx was already included in a prior blockTxCount increment.
+      if (!transaction.simulated && !(transaction as any).countedInFirst) {
+        // blockTxCount: the SSE server already batched the whole block's count into this event
+        const count = (transaction as any).blockTxCount ?? 1;
+        incrementStats(transaction.type, count);
+        // Winner detection is server-side — handled by the 'winner' SSE event
       }
     },
-    [addTransaction, incrementStats, setWinner, targetMilestone]
+    [addTransaction, incrementStats]
   );
 
   const connect = useCallback(() => {
@@ -67,13 +67,26 @@ export function useTransactionStream() {
               if (Array.isArray(message.data)) {
                 addTransactions(message.data);
                 message.data.forEach((tx: Transaction) => {
-                  incrementStats(tx.type);
+                  if (!tx.simulated) incrementStats(tx.type);
                 });
               }
               break;
 
             case 'stats':
+              // Full authoritative sync from server (initial load or EVM update)
               setStats(message.data);
+              break;
+
+            case 'winner':
+              // Server-side winner confirmed — DB record already written.
+              // Use server's transaction if available, otherwise use latest known.
+              if (message.data.transaction) {
+                setWinner(message.data.transaction);
+              } else {
+                // EVM-triggered milestone: use latest transaction in feed as display winner
+                const latestTx = useTransactionStore.getState().transactions[0];
+                if (latestTx) setWinner(latestTx);
+              }
               break;
 
             case 'heartbeat':
@@ -110,7 +123,7 @@ export function useTransactionStream() {
       console.error('Failed to create EventSource:', error);
       setConnectionStatus(false, 'Failed to connect');
     }
-  }, [addTransactions, handleTransaction, incrementStats, setConnectionStatus, setStats]);
+  }, [addTransactions, handleTransaction, incrementStats, setConnectionStatus, setStats, setWinner]);
 
   const disconnect = useCallback(() => {
     if (reconnectTimeoutRef.current) {

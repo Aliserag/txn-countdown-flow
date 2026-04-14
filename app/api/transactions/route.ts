@@ -1,117 +1,92 @@
 import { NextRequest } from 'next/server';
+import { supabase, TransactionState } from '@/lib/supabase/client';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
 const FLOW_ACCESS_API = 'https://rest-mainnet.onflow.org/v1';
-const POLL_INTERVAL = 3000; // 3 seconds
+const EVM_FLOWSCAN_API = 'https://evm.flowscan.io/api/v2';
+const POLL_INTERVAL = 3000;
+const EVM_POLL_INTERVAL = 30000;
+const TARGET_MILESTONE = 1_000_000_000;
+// Re-sync from live APIs if DB state is this many blocks behind current chain
+const STALE_THRESHOLD = 100;
 
-let lastProcessedHeight = 0;
-// Total = Cadence (893.6M) + EVM (58.9M) = 952.5M
-let transactionCounter = 952_550_000; // Start from accurate current count (Jan 2026)
+const BASELINE = {
+  blockHeight: 148_358_201,
+  cadence: 907_924_122,
+  evm: 60_766_734,
+  cadenceTxPerBlock: 1.82,
+  evmTxPerBlock: 0.235,
+};
 
-// Simple timeout wrapper
 async function fetchWithTimeout(url: string, timeout = 5000): Promise<Response> {
   const controller = new AbortController();
   const id = setTimeout(() => controller.abort(), timeout);
   try {
-    const response = await fetch(url, {
-      signal: controller.signal,
-      cache: 'no-store',
-    });
+    const res = await fetch(url, { signal: controller.signal, cache: 'no-store' });
     clearTimeout(id);
-    return response;
-  } catch (error) {
+    return res;
+  } catch (err) {
     clearTimeout(id);
-    throw error;
+    throw err;
   }
 }
 
 async function fetchLatestBlock(): Promise<any> {
   try {
-    const response = await fetchWithTimeout(`${FLOW_ACCESS_API}/blocks?height=sealed`, 5000);
-    if (!response.ok) throw new Error('Failed to fetch block');
-    const blocks = await response.json();
-    return blocks[0];
-  } catch (error) {
-    console.error('Error fetching latest block:', error);
-    return null;
-  }
+    const res = await fetchWithTimeout(`${FLOW_ACCESS_API}/blocks?height=sealed`);
+    if (!res.ok) return null;
+    const blocks = await res.json();
+    return blocks[0] ?? null;
+  } catch { return null; }
 }
 
-async function fetchBlockTransactions(blockId: string, blockHeight: number): Promise<any[]> {
-  const transactions: any[] = [];
-
+// Authoritative on-chain Cadence tx count for a block via execution_results.
+async function fetchBlockTxCount(blockId: string): Promise<number> {
   try {
-    // Fetch block with expanded payload
-    const response = await fetchWithTimeout(
-      `${FLOW_ACCESS_API}/blocks/${blockId}?expand=payload`,
-      4000
-    );
-    if (!response.ok) {
-      // Return simulated transactions based on block
-      return generateSimulatedTransactions(blockId, blockHeight, 3);
-    }
-
-    const block = await response.json();
-    const collectionGuarantees = block?.payload?.collection_guarantees || [];
-
-    if (collectionGuarantees.length === 0) {
-      // Even empty blocks, show at least the system transaction
-      return generateSimulatedTransactions(blockId, blockHeight, 1);
-    }
-
-    // Try to fetch one collection
-    const guarantee = collectionGuarantees[0];
-    try {
-      const collectionResponse = await fetchWithTimeout(
-        `${FLOW_ACCESS_API}/collections/${guarantee.collection_id}`,
-        2000
-      );
-
-      if (collectionResponse.ok) {
-        const collection = await collectionResponse.json();
-        const txIds = collection?.transactions || [];
-
-        for (const txId of txIds.slice(0, 8)) {
-          const isEvm = Math.random() < 0.15;
-          transactions.push({
-            id: txId,
-            type: isEvm ? 'evm' : 'cadence',
-            proposer: `0x${txId.slice(0, 16)}`,
-            blockHeight: blockHeight,
-          });
-        }
-      }
-    } catch {
-      // Collection fetch failed, use simulated
-    }
-
-    // If we didn't get any transactions, generate some
-    if (transactions.length === 0) {
-      return generateSimulatedTransactions(blockId, blockHeight, collectionGuarantees.length * 2);
-    }
-
-    return transactions;
-  } catch (error) {
-    console.error('Error fetching block transactions:', error);
-    return generateSimulatedTransactions(blockId, blockHeight, 2);
-  }
+    const res = await fetchWithTimeout(`${FLOW_ACCESS_API}/execution_results?block_id=${blockId}`, 4000);
+    if (!res.ok) return 0;
+    const results = await res.json();
+    if (!Array.isArray(results) || results.length === 0) return 0;
+    const chunks: any[] = results[0]?.chunks ?? [];
+    return chunks.reduce((sum, c) => sum + (parseInt(c.number_of_transactions, 10) || 0), 0);
+  } catch { return 0; }
 }
 
-function generateSimulatedTransactions(blockId: string, blockHeight: number, count: number): any[] {
-  const transactions: any[] = [];
-  for (let i = 0; i < count; i++) {
-    const isEvm = Math.random() < 0.15;
-    const txId = `${blockId.slice(0, 32)}${blockHeight.toString(16).padStart(8, '0')}${i.toString(16).padStart(8, '0')}`;
-    transactions.push({
+// Sample real tx IDs from first collection for feed display — best-effort, doesn't affect counting.
+async function fetchSampleTxIds(blockId: string, blockHeight: number): Promise<any[]> {
+  try {
+    const blockRes = await fetchWithTimeout(`${FLOW_ACCESS_API}/blocks/${blockId}?expand=payload`, 3000);
+    if (!blockRes.ok) return [];
+    const block = await blockRes.json();
+    const guarantees = block?.payload?.collection_guarantees ?? [];
+    if (guarantees.length === 0) return [];
+
+    const colRes = await fetchWithTimeout(
+      `${FLOW_ACCESS_API}/collections/${guarantees[0].collection_id}`, 2000
+    );
+    if (!colRes.ok) return [];
+    const collection = await colRes.json();
+    const txIds: string[] = collection?.transactions ?? [];
+
+    return txIds.slice(0, 6).map((txId: string) => ({
       id: txId,
-      type: isEvm ? 'evm' : 'cadence',
+      type: 'cadence' as const,
       proposer: `0x${txId.slice(0, 16)}`,
-      blockHeight: blockHeight,
-    });
-  }
-  return transactions;
+      blockHeight,
+      simulated: false,
+    }));
+  } catch { return []; }
+}
+
+async function fetchLiveEvmTotal(): Promise<number> {
+  try {
+    const res = await fetchWithTimeout(`${EVM_FLOWSCAN_API}/stats`);
+    if (!res.ok) return 0;
+    const data = await res.json();
+    return parseInt(data?.total_transactions || '0', 10);
+  } catch { return 0; }
 }
 
 export async function GET(request: NextRequest) {
@@ -120,77 +95,200 @@ export async function GET(request: NextRequest) {
   const stream = new ReadableStream({
     async start(controller) {
       let isRunning = true;
+      let lastEvmPollTime = 0;
 
-      // Send initial heartbeat
-      controller.enqueue(
-        encoder.encode(`data: ${JSON.stringify({ type: 'heartbeat', data: { timestamp: Date.now() } })}\n\n`)
-      );
-
-      // Initialize block height
-      const initialBlock = await fetchLatestBlock();
-      if (initialBlock) {
-        lastProcessedHeight = parseInt(initialBlock.header.height, 10);
-      }
-
-      const pollForBlocks = async () => {
+      const emit = (payload: object) => {
         if (!isRunning) return;
-
         try {
-          const block = await fetchLatestBlock();
-          if (!block) {
-            controller.enqueue(
-              encoder.encode(`data: ${JSON.stringify({ type: 'heartbeat', data: { timestamp: Date.now() } })}\n\n`)
-            );
-            return;
-          }
-
-          const currentHeight = parseInt(block.header.height, 10);
-
-          // Process new blocks
-          if (currentHeight > lastProcessedHeight) {
-            const transactions = await fetchBlockTransactions(block.header.id, currentHeight);
-
-            for (const tx of transactions) {
-              transactionCounter++;
-              const transaction = {
-                ...tx,
-                number: transactionCounter,
-                timestamp: Date.now(),
-                status: 'sealed',
-              };
-
-              controller.enqueue(
-                encoder.encode(`data: ${JSON.stringify({ type: 'transaction', data: transaction })}\n\n`)
-              );
-            }
-
-            lastProcessedHeight = currentHeight;
-          }
-
-          // Send heartbeat every poll
-          controller.enqueue(
-            encoder.encode(`data: ${JSON.stringify({ type: 'heartbeat', data: { timestamp: Date.now(), blockHeight: currentHeight } })}\n\n`)
-          );
-        } catch (error) {
-          console.error('Polling error:', error);
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify(payload)}\n\n`));
+        } catch {
+          isRunning = false;
         }
       };
 
-      // Initial poll
-      await pollForBlocks();
+      emit({ type: 'heartbeat', data: { timestamp: Date.now() } });
 
-      // Set up polling interval
-      const intervalId = setInterval(pollForBlocks, POLL_INTERVAL);
+      // ── Bootstrap: load authoritative state from Supabase ────────────────
+      const { data: dbState, error: dbError } = await supabase
+        .from('transaction_state')
+        .select('*')
+        .eq('id', 1)
+        .single<TransactionState>();
 
-      // Handle client disconnect
+      if (dbError || !dbState) {
+        console.error('Failed to load DB state:', dbError);
+        emit({ type: 'error', data: { message: 'Database unavailable' } });
+        return;
+      }
+
+      // Check if DB state is stale vs current chain
+      const latestBlock = await fetchLatestBlock();
+      const currentHeight = latestBlock ? parseInt(latestBlock.header.height, 10) : 0;
+
+      let cadenceCount = dbState.cadence_count;
+      let evmCount = dbState.evm_count;
+      let lastBlockHeight = dbState.last_block_height;
+
+      if (currentHeight > 0 && currentHeight - lastBlockHeight > STALE_THRESHOLD) {
+        // Jump to current state using live API estimates
+        const liveEvm = await fetchLiveEvmTotal();
+        const blockDelta = Math.max(0, currentHeight - BASELINE.blockHeight);
+        const cadence = Math.round(BASELINE.cadence + blockDelta * BASELINE.cadenceTxPerBlock);
+        const evm = liveEvm > 0 ? liveEvm : Math.round(BASELINE.evm + blockDelta * BASELINE.evmTxPerBlock);
+
+        const { data: resynced } = await supabase.rpc('resync_state', {
+          p_cadence: cadence,
+          p_evm: evm,
+          p_block_height: currentHeight - 1,
+          p_evm_total: evm,
+        });
+
+        if (resynced) {
+          cadenceCount = resynced.cadence_count;
+          evmCount = resynced.evm_count;
+          lastBlockHeight = currentHeight - 1;
+        }
+      }
+
+      // Send authoritative initial totals to client
+      emit({
+        type: 'stats',
+        data: {
+          total: cadenceCount + evmCount,
+          cadence: cadenceCount,
+          evm: evmCount,
+          blockHeight: lastBlockHeight,
+          timestamp: Date.now(),
+        },
+      });
+
+      // ── Poll loop ────────────────────────────────────────────────────────
+      const poll = async () => {
+        if (!isRunning) return;
+        const now = Date.now();
+
+        try {
+          // ── EVM sync every 30s ──────────────────────────────────────────
+          if (now - lastEvmPollTime >= EVM_POLL_INTERVAL) {
+            lastEvmPollTime = now;
+            const liveEvm = await fetchLiveEvmTotal();
+
+            if (liveEvm > 0) {
+              const { data: result } = await supabase.rpc('sync_evm', { new_evm_total: liveEvm });
+              if (result) {
+                evmCount = result.evm_count;
+                cadenceCount = result.cadence_count;
+                const total = result.total;
+
+                if (result.updated) {
+                  emit({
+                    type: 'stats',
+                    data: { total, cadence: cadenceCount, evm: evmCount, blockHeight: lastBlockHeight, timestamp: Date.now() },
+                  });
+
+                  if (total >= TARGET_MILESTONE) {
+                    const { data: isFirst } = await supabase.rpc('claim_winner', {
+                      p_milestone: TARGET_MILESTONE,
+                      p_transaction_id: 'evm-milestone',
+                      p_transaction_type: 'evm',
+                      p_block_height: lastBlockHeight,
+                      p_proposer: 'unknown',
+                      p_total: total,
+                    });
+                    if (isFirst) {
+                      emit({ type: 'winner', data: { transaction: null, total, milestone: TARGET_MILESTONE, timestamp: Date.now() } });
+                    }
+                  }
+                }
+              }
+            }
+          }
+
+          // ── Cadence block polling ───────────────────────────────────────
+          const block = await fetchLatestBlock();
+          if (!block) {
+            emit({ type: 'heartbeat', data: { timestamp: Date.now() } });
+            return;
+          }
+
+          const blockHeight = parseInt(block.header.height, 10);
+
+          if (blockHeight <= lastBlockHeight) {
+            emit({ type: 'heartbeat', data: { timestamp: Date.now(), blockHeight } });
+            return;
+          }
+
+          // New block — fetch real Cadence tx count + sample tx IDs in parallel
+          const [cadenceDelta, sampleTxs] = await Promise.all([
+            fetchBlockTxCount(block.header.id),
+            fetchSampleTxIds(block.header.id, blockHeight),
+          ]);
+
+          if (cadenceDelta > 0) {
+            // Atomic RPC: only increments if blockHeight > last_block_height in DB.
+            // Multiple concurrent SSE connections racing on the same block:
+            // only the first one returns updated=true.
+            const { data: result } = await supabase.rpc('increment_cadence', {
+              block_height_new: blockHeight,
+              cadence_delta: cadenceDelta,
+            });
+
+            if (result) {
+              cadenceCount = result.cadence_count;
+              evmCount = result.evm_count;
+              lastBlockHeight = blockHeight;
+              const total = result.total;
+
+              if (result.updated) {
+                // This instance won the race — emit transaction events
+                const txsToEmit = sampleTxs.length > 0
+                  ? sampleTxs
+                  : [{ id: block.header.id.slice(0, 40), type: 'cadence' as const, proposer: `0x${block.header.id.slice(0, 16)}`, blockHeight, simulated: false }];
+
+                // First tx carries the authoritative running total + block count
+                const firstTx = { ...txsToEmit[0], number: total, blockTxCount: cadenceDelta, timestamp: Date.now(), status: 'sealed' };
+                emit({ type: 'transaction', data: firstTx });
+
+                for (const tx of txsToEmit.slice(1)) {
+                  emit({ type: 'transaction', data: { ...tx, number: total, timestamp: Date.now(), status: 'sealed', countedInFirst: true } });
+                }
+
+                // Server-side winner detection — DB-backed, first-write-wins
+                if (total >= TARGET_MILESTONE) {
+                  const { data: isFirst } = await supabase.rpc('claim_winner', {
+                    p_milestone: TARGET_MILESTONE,
+                    p_transaction_id: firstTx.id,
+                    p_transaction_type: firstTx.type,
+                    p_block_height: blockHeight,
+                    p_proposer: firstTx.proposer,
+                    p_total: total,
+                  });
+                  if (isFirst) {
+                    emit({ type: 'winner', data: { transaction: firstTx, total, milestone: TARGET_MILESTONE, timestamp: Date.now() } });
+                  }
+                }
+              }
+            }
+          } else {
+            // Empty block — still advance the height marker via RPC
+            await supabase.rpc('increment_cadence', { block_height_new: blockHeight, cadence_delta: 0 });
+            lastBlockHeight = blockHeight;
+          }
+
+          emit({ type: 'heartbeat', data: { timestamp: Date.now(), blockHeight } });
+        } catch (err) {
+          console.error('Poll error:', err);
+          emit({ type: 'heartbeat', data: { timestamp: Date.now() } });
+        }
+      };
+
+      await poll();
+      const intervalId = setInterval(poll, POLL_INTERVAL);
+
       request.signal.addEventListener('abort', () => {
         isRunning = false;
         clearInterval(intervalId);
-        try {
-          controller.close();
-        } catch {
-          // Already closed
-        }
+        try { controller.close(); } catch { /* already closed */ }
       });
     },
   });

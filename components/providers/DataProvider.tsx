@@ -14,16 +14,14 @@ export function DataProvider({ children }: DataProviderProps) {
   const setLoading = useTransactionStore((state) => state.setLoading);
   const setError = useTransactionStore((state) => state.setError);
 
-  // Initialize data on mount
+  // Initialize data on mount and re-sync every 5 minutes to prevent drift
   useEffect(() => {
-    async function fetchInitialData() {
+    async function fetchStats(isInitial = false) {
       try {
-        setLoading(true);
+        if (isInitial) setLoading(true);
 
         const response = await fetch('/api/stats');
-        if (!response.ok) {
-          throw new Error('Failed to fetch initial stats');
-        }
+        if (!response.ok) throw new Error('Failed to fetch stats');
 
         const stats = await response.json();
         setStats({
@@ -33,14 +31,16 @@ export function DataProvider({ children }: DataProviderProps) {
           blockHeight: stats.blockHeight,
         });
 
-        setLoading(false);
+        if (isInitial) setLoading(false);
       } catch (error) {
-        console.error('Error fetching initial data:', error);
-        setError('Failed to load initial data');
+        console.error('Error fetching stats:', error);
+        if (isInitial) setError('Failed to load initial data');
       }
     }
 
-    fetchInitialData();
+    fetchStats(true);
+    const syncInterval = setInterval(() => fetchStats(false), 5 * 60 * 1000);
+    return () => clearInterval(syncInterval);
   }, [setStats, setLoading, setError]);
 
   // Connect to real-time stream

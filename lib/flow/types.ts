@@ -6,6 +6,9 @@ export interface Transaction {
   timestamp: number;
   blockHeight: number;
   status: 'sealed' | 'pending';
+  simulated?: boolean;    // true for display-only transactions that don't count toward the milestone
+  blockTxCount?: number;  // real on-chain tx count for the block (from execution_results)
+  countedInFirst?: boolean; // true if already counted via blockTxCount of a prior event in the same block
 }
 
 export interface FlowBlock {
