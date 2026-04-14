@@ -1,6 +1,12 @@
 -- Fix resync_state: require per-component non-regression in addition to total-level check.
 -- Previously the guard was only on the sum, allowing cadence to go backward if EVM
 -- was sufficiently higher (and vice versa). Now both components must be >= current values.
+--
+-- Also drop the old INTEGER-typed overload from migration 002. Without this DROP,
+-- CREATE OR REPLACE with a different param type (BIGINT vs INTEGER for p_block_height)
+-- creates a second overload rather than replacing the original, and PostgREST may
+-- resolve to the unpatched version.
+DROP FUNCTION IF EXISTS resync_state(BIGINT, BIGINT, INTEGER, BIGINT);
 
 CREATE OR REPLACE FUNCTION resync_state(
   p_cadence     BIGINT,

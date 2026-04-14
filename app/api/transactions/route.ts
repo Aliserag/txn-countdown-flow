@@ -1,5 +1,5 @@
 import { NextRequest } from 'next/server';
-import { supabase, TransactionState } from '@/lib/supabase/client';
+import { supabase, TransactionState, MilestoneWinner } from '@/lib/supabase/client';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -122,6 +122,9 @@ export async function GET(request: NextRequest) {
     async start(controller) {
       let isRunning = true;
       let lastEvmPollTime = 0;
+      // Track a block whose tx count fetch failed so we can retry it next poll
+      // rather than permanently skipping it as the chain advances.
+      let pendingBlock: { id: string; height: number } | null = null;
 
       const emit = (payload: object) => {
         if (!isRunning) return;
@@ -185,6 +188,36 @@ export async function GET(request: NextRequest) {
         data: { total: cadenceCount + evmCount, cadence: cadenceCount, evm: evmCount, blockHeight: lastBlockHeight, timestamp: Date.now() },
       });
 
+      // ── Winner replay: re-emit winner event to reconnecting clients ────────
+      // The winner SSE event is fire-and-forget per connection. Any client that
+      // connects or reconnects after the milestone is crossed would never see it
+      // unless we replay it here from the DB record.
+      const { data: existingWinner } = await supabase
+        .from('milestone_winner')
+        .select('*')
+        .eq('milestone', TARGET_MILESTONE)
+        .maybeSingle<MilestoneWinner>();
+
+      if (existingWinner) {
+        emit({
+          type: 'winner',
+          data: {
+            transaction: {
+              id: existingWinner.transaction_id,
+              type: existingWinner.transaction_type as 'cadence' | 'evm',
+              number: existingWinner.total_at_detection,
+              proposer: existingWinner.proposer,
+              blockHeight: existingWinner.block_height,
+              timestamp: new Date(existingWinner.detected_at).getTime(),
+              status: 'sealed' as const,
+            },
+            total: existingWinner.total_at_detection,
+            milestone: TARGET_MILESTONE,
+            timestamp: new Date(existingWinner.detected_at).getTime(),
+          },
+        });
+      }
+
       // ── Poll loop ──────────────────────────────────────────────────────────
       const poll = async () => {
         if (!isRunning) return;
@@ -193,13 +226,16 @@ export async function GET(request: NextRequest) {
         try {
           // ── EVM sync every 30s ────────────────────────────────────────────
           if (now - lastEvmPollTime >= EVM_POLL_INTERVAL) {
-            lastEvmPollTime = now;
+            lastEvmPollTime = now; // Commit upfront to prevent overlapping polls
             const liveEvm = await fetchLiveEvmTotal();
 
             if (liveEvm > 0) {
               const { data: result, error: evmSyncError } = await supabase.rpc('sync_evm', { new_evm_total: liveEvm });
               if (evmSyncError) {
                 console.error('sync_evm RPC failed:', evmSyncError);
+                // Retry in ~5s instead of the full 30s interval so we don't
+                // miss the milestone if the failure was transient.
+                lastEvmPollTime = now - EVM_POLL_INTERVAL + 5000;
               } else if (result) {
                 evmCount = result.evm_count;
                 cadenceCount = result.cadence_count;
@@ -235,7 +271,17 @@ export async function GET(request: NextRequest) {
           }
 
           // ── Cadence block polling ─────────────────────────────────────────
-          const block = await fetchLatestBlock();
+          // If a previous tx-count fetch failed, retry that specific block before
+          // fetching the new chain tip. Without this, the chain advances past the
+          // failed block on the next poll and it is permanently skipped.
+          let block: any;
+          if (pendingBlock) {
+            block = { header: { id: pendingBlock.id, height: String(pendingBlock.height) } };
+            pendingBlock = null;
+          } else {
+            block = await fetchLatestBlock();
+          }
+
           if (!block) {
             emit({ type: 'heartbeat', data: { timestamp: Date.now() } });
             return;
@@ -254,10 +300,11 @@ export async function GET(request: NextRequest) {
             fetchSampleTxIds(block.header.id, blockHeight),
           ]);
 
-          // null means the API call failed — do NOT advance lastBlockHeight.
-          // We'll retry on the next poll cycle rather than permanently skip the block.
+          // null = fetch failed. Store block for retry next poll — do NOT advance
+          // lastBlockHeight or the block will be skipped as the chain moves forward.
           if (cadenceDelta === null) {
-            console.error(`Block ${blockHeight} tx count unavailable, will retry next poll`);
+            pendingBlock = { id: block.header.id, height: blockHeight };
+            console.error(`Block ${blockHeight} tx count unavailable, stored for retry`);
             emit({ type: 'heartbeat', data: { timestamp: Date.now(), blockHeight } });
             return;
           }
