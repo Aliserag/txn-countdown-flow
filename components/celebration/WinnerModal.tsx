@@ -93,7 +93,9 @@ export function WinnerModal() {
                     >
                       {winner.transaction?.type === 'cadence' ? 'CDC' : 'EVM'}
                     </span>
-                    {winner.transaction?.proposer && (
+                    {/* Only show proposer for EVM — Cadence proposer is derived
+                        from tx ID, not from an actual account lookup. */}
+                    {winner.transaction?.type === 'evm' && winner.transaction.proposer && winner.transaction.proposer !== 'unknown' && (
                       <span className="text-xs text-text-muted font-mono">
                         {formatAddress(winner.transaction.proposer, 8, 6)}
                       </span>
@@ -108,23 +110,28 @@ export function WinnerModal() {
                   transition={{ delay: 0.6 }}
                   className="flex flex-col sm:flex-row gap-3 justify-center"
                 >
-                  {winner.transaction?.id && (
-                    <a
-                      href={
-                        winner.transaction.type === 'evm'
-                          ? `https://evm.flowscan.io/tx/${winner.transaction.id}`
-                          : `https://flowscan.io/transaction/${winner.transaction.id}`
-                      }
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="px-6 py-3 bg-flow-green text-void font-medium text-sm rounded-lg hover:bg-flow-green/90 transition-all duration-200 hover:shadow-glow-green"
-                    >
-                      View on Flowscan
-                    </a>
-                  )}
+                  {winner.transaction?.id && (() => {
+                    const txId = winner.transaction!.id;
+                    // EVM synthetic fallback format: 'evm-block-{height}' — no real tx hash available
+                    const isEvmSynthetic = txId.startsWith('evm-block-');
+                    if (isEvmSynthetic) return null;
+                    const href = winner.transaction!.type === 'evm'
+                      ? `https://evm.flowscan.io/tx/${txId}`
+                      : `https://flowscan.io/transaction/${txId}`;
+                    return (
+                      <a
+                        href={href}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="px-6 py-3 bg-flow-green text-void font-medium text-sm rounded-lg hover:bg-flow-green/90 transition-all duration-200 hover:shadow-glow-green"
+                      >
+                        View on Flowscan
+                      </a>
+                    );
+                  })()}
                   <a
                     href={`https://twitter.com/intent/tweet?text=${encodeURIComponent(
-                      `Flow just hit 1 BILLION transactions!\n\nThe historic billionth transaction is live on-chain.`
+                      `Flow just hit 1 BILLION transactions! 🎉\n\nThe historic #1B transaction${winner.transaction?.id ? `: ${winner.transaction.id.slice(0, 16)}...` : ''}\n\nVerify on-chain at flowscan.io`
                     )}`}
                     target="_blank"
                     rel="noopener noreferrer"

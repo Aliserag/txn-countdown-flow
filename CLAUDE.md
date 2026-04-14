@@ -41,10 +41,10 @@ Total Transactions = Cadence Transactions + EVM Transactions
 | Flow Access API | `rest-mainnet.onflow.org/v1/blocks` | Block height |
 | Find Labs (optional) | `api.find.xyz/status/v1/flow/stat` | Live Cadence count |
 
-### Baseline Data (lib/flow/api.ts)
+### Baseline Data (app/api/transactions/route.ts)
 When APIs unavailable, estimates from baseline + block delta:
-- Block: 148,358,201 (updated Apr 13, 2026)
-- Cadence: 907,924,122 (updated Apr 13, 2026)
+- Block: 148,380,615 (updated Apr 13, 2026)
+- Cadence: 907,941,661 (updated Apr 13, 2026, synced to flowscan)
 - EVM: 60,766,734 (updated Apr 13, 2026)
 - Growth rate: ~1.82 Cadence tx/block, ~0.235 EVM tx/block
 - **Update this baseline periodically** — stale rates cause large drift near the 1B milestone

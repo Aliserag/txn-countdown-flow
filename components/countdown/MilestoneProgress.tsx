@@ -100,7 +100,7 @@ export function MilestoneProgress() {
             Progress
           </div>
           <div className="text-sm font-mono text-flow-green font-medium">
-            {progress.toFixed(2)}%
+            {Math.min(progress, 100).toFixed(2)}%
           </div>
         </div>
 
