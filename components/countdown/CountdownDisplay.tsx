@@ -110,7 +110,7 @@ export function CountdownDisplay() {
       <motion.div
         animate={isCritical ? { scale: [1, 1.01, 1] } : {}}
         transition={{ duration: 0.8, repeat: isCritical ? Infinity : 0 }}
-        className="font-display text-5xl sm:text-6xl md:text-7xl lg:text-8xl xl:text-9xl font-bold text-glow-green"
+        className="font-display text-[7vw] sm:text-6xl md:text-7xl lg:text-8xl xl:text-9xl font-bold text-glow-green"
       >
         <div className="flex items-start justify-center gap-2 md:gap-3">
           {groups.map((group, i) => (
