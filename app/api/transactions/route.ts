@@ -113,8 +113,8 @@ async function fetchLiveCadenceTotal(): Promise<number> {
     );
     if (!res.ok) return 0;
     const data = await res.json();
-    // The API may name the field differently; try likely candidates in order.
-    const raw = data?.transactions ?? data?.cadence_transactions ?? data?.total_transactions ?? data?.count;
+    // Response shape (verified 2026-07-06): {"data":[{"transactions_count":N,"blocks_count":N,"latest_block":N,...}]}
+    const raw = data?.data?.[0]?.transactions_count;
     const count = parseInt(raw ?? '0', 10);
     if (isNaN(count) || count <= 0) {
       console.warn('fetchLiveCadenceTotal: unexpected response shape from Find Labs:', JSON.stringify(data));
